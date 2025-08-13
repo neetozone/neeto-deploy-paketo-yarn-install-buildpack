@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/paketo-buildpacks/packit/v2/fs"
@@ -267,20 +268,28 @@ func isYarnBerry(workingDir string) bool {
         if jsonErr := json.Unmarshal(data, &pkg); jsonErr == nil {
             if strings.HasPrefix(pkg.PackageManager, "yarn@") {
                 ver := strings.TrimPrefix(pkg.PackageManager, "yarn@")
-                // Major version is the leading number before dot or hyphen
-                major := ver
-                if idx := strings.IndexAny(ver, ".-"); idx != -1 {
-                    major = ver[:idx]
+                ver = strings.TrimSpace(ver)
+
+                // Extract leading numeric major version (skip any non-digits like ^, ~, v)
+                start := 0
+                for start < len(ver) && (ver[start] < '0' || ver[start] > '9') {
+                    start++
                 }
-                if major != "" {
-                    // Treat non-numeric or parse errors as Berry to be conservative
-                    // because Yarn 1 rarely sets packageManager.
-                    if m := major; m >= "2" {
-                        return true
+                ver = ver[start:]
+                end := 0
+                for end < len(ver) && (ver[end] >= '0' && ver[end] <= '9') {
+                    end++
+                }
+                majorStr := ver[:end]
+
+                if majorStr != "" {
+                    if majorInt, convErr := strconv.Atoi(majorStr); convErr == nil {
+                        return majorInt >= 2
                     }
                 }
-                // If we couldn't confidently parse, still assume Berry since packageManager exists.
-                return true
+
+                // If version cannot be parsed, do not assume Berry
+                return false
             }
         }
     }
