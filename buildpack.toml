@@ -2,7 +2,7 @@ api = "0.7"
 
 [buildpack]
   homepage = "https://github.com/paketo-buildpacks/yarn-install"
-  id = "paketo-buildpacks/yarn-install"
+  id = "neeto-deploy/yarn-install"
   name = "Paketo Buildpack for Yarn Install"
   sbom-formats = ["application/vnd.cyclonedx+json", "application/spdx+json", "application/vnd.syft+json"]
 

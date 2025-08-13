@@ -2,6 +2,7 @@ package yarninstall
 
 import (
 	"bytes"
+    "encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -52,17 +53,24 @@ func (ip YarnInstallProcess) ShouldRun(workingDir string, metadata map[string]in
 	ip.logger.Action("yarn.lock -> Found")
 	ip.logger.Break()
 
-	buffer := bytes.NewBuffer(nil)
+    buffer := bytes.NewBuffer(nil)
 
-	err = ip.executable.Execute(pexec.Execution{
-		Args:   []string{"config", "list", "--silent"},
-		Stdout: buffer,
-		Stderr: buffer,
-		Dir:    workingDir,
-	})
-	if err != nil {
-		return true, "", fmt.Errorf("failed to execute yarn config output:\n%s\nerror: %s", buffer.String(), err)
-	}
+    if isYarnBerry(workingDir) {
+        // Yarn 4+: no `yarn config list`; include `.yarnrc.yml` contents if present
+        if data, readErr := os.ReadFile(filepath.Join(workingDir, ".yarnrc.yml")); readErr == nil {
+            _, _ = buffer.Write(data)
+        }
+    } else {
+        err = ip.executable.Execute(pexec.Execution{
+            Args:   []string{"config", "list", "--silent"},
+            Stdout: buffer,
+            Stderr: buffer,
+            Dir:    workingDir,
+        })
+        if err != nil {
+            return true, "", fmt.Errorf("failed to execute yarn config output:\n%s\nerror: %s", buffer.String(), err)
+        }
+    }
 
 	nodeEnv := os.Getenv("NODE_ENV")
 	buffer.WriteString(nodeEnv)
@@ -143,43 +151,71 @@ func (ip YarnInstallProcess) Execute(workingDir, modulesLayerPath string, launch
 	environment := os.Environ()
 	environment = append(environment, fmt.Sprintf("PATH=%s%c%s", os.Getenv("PATH"), os.PathListSeparator, filepath.Join("node_modules", ".bin")))
 
-	buffer := bytes.NewBuffer(nil)
+    buffer := bytes.NewBuffer(nil)
 
-	err := ip.executable.Execute(pexec.Execution{
-		Args:   []string{"config", "get", "yarn-offline-mirror"},
-		Stdout: buffer,
-		Stderr: buffer,
-		Env:    environment,
-		Dir:    workingDir,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to execute yarn config output:\n%s\nerror: %s", buffer.String(), err)
-	}
+    isBerry := isYarnBerry(workingDir)
+    var err error
+    if !isBerry {
+        err = ip.executable.Execute(pexec.Execution{
+            Args:   []string{"config", "get", "yarn-offline-mirror"},
+            Stdout: buffer,
+            Stderr: buffer,
+            Env:    environment,
+            Dir:    workingDir,
+        })
+        if err != nil {
+            return fmt.Errorf("failed to execute yarn config output:\n%s\nerror: %s", buffer.String(), err)
+        }
+    }
 
-	installArgs := []string{"install", "--ignore-engines", "--frozen-lockfile"}
+    installArgs := []string{"install"}
+
+    if isBerry {
+        installArgs = append(installArgs, "--immutable")
+    } else {
+        installArgs = append(installArgs, "--ignore-engines")
+        installArgs = append(installArgs, "--frozen-lockfile")
+    }
 
 	if !launch {
-		installArgs = append(installArgs, "--production", "false")
+        if isBerry {
+            // Yarn 4 does not support --production flag; ensure devDependencies are installed
+            // by explicitly setting NODE_ENV to development for the install step.
+            environment = append(environment, "NODE_ENV=development")
+        } else {
+            installArgs = append(installArgs, "--production", "false")
+        }
 	}
 
-	// Parse yarn config get yarn-offline-mirror output
-	// in case there are any warning lines in the output like:
-	// warning You don't appear to have an internet connection.
-	var offlineMirrorDir string
-	for _, line := range strings.Split(buffer.String(), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "/") {
-			offlineMirrorDir = strings.TrimSpace(line)
-			break
-		}
-	}
-	info, err := os.Stat(offlineMirrorDir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("failed to confirm existence of offline mirror directory: %w", err)
-	}
+    // Determine offline install behavior
+    if isBerry {
+        // For Yarn 2+/4, prefer project cache at .yarn/cache when present
+        berryCacheDir := filepath.Join(workingDir, ".yarn", "cache")
+        if info, statErr := os.Stat(berryCacheDir); statErr == nil && info.IsDir() {
+            installArgs = append(installArgs, "--offline")
+        } else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+            return fmt.Errorf("failed to confirm existence of berry cache directory: %w", statErr)
+        }
+    } else {
+        // Parse yarn config get yarn-offline-mirror output (Yarn 1 only)
+        // in case there are any warning lines in the output like:
+        // warning You don't appear to have an internet connection.
+        var offlineMirrorDir string
+        for _, line := range strings.Split(buffer.String(), "\n") {
+            if strings.HasPrefix(strings.TrimSpace(line), "/") {
+                offlineMirrorDir = strings.TrimSpace(line)
+                break
+            }
+        }
+        info, statErr := os.Stat(offlineMirrorDir)
+        if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+            return fmt.Errorf("failed to confirm existence of offline mirror directory: %w", statErr)
+        }
 
-	if info != nil && info.IsDir() {
-		installArgs = append(installArgs, "--offline")
-	}
+        if info != nil && info.IsDir() {
+            installArgs = append(installArgs, "--offline")
+        }
+    }
 
 	// installArgs = append(installArgs, "--modules-folder", filepath.Join(modulesLayerPath, "node_modules"))
 	ip.logger.Subprocess("Running 'yarn %s'", strings.Join(installArgs, " "))
@@ -204,4 +240,50 @@ func (ip YarnInstallProcess) Execute(workingDir, modulesLayerPath string, launch
 
 
 	return nil
+}
+
+// isYarnBerry returns true if the project appears to use Yarn Berry (v2+) including Yarn 4.
+// Heuristics:
+// - Presence of .yarnrc.yml
+// - Presence of .yarn/ directory
+// - package.json contains packageManager starting with "yarn@" and major version >= 2
+func isYarnBerry(workingDir string) bool {
+    // .yarnrc.yml present
+    if _, err := os.Stat(filepath.Join(workingDir, ".yarnrc.yml")); err == nil {
+        return true
+    }
+
+    // .yarn directory present
+    if info, err := os.Stat(filepath.Join(workingDir, ".yarn")); err == nil && info.IsDir() {
+        return true
+    }
+
+    // package.json packageManager field
+    pkgPath := filepath.Join(workingDir, "package.json")
+    if data, err := os.ReadFile(pkgPath); err == nil {
+        var pkg struct {
+            PackageManager string `json:"packageManager"`
+        }
+        if jsonErr := json.Unmarshal(data, &pkg); jsonErr == nil {
+            if strings.HasPrefix(pkg.PackageManager, "yarn@") {
+                ver := strings.TrimPrefix(pkg.PackageManager, "yarn@")
+                // Major version is the leading number before dot or hyphen
+                major := ver
+                if idx := strings.IndexAny(ver, ".-"); idx != -1 {
+                    major = ver[:idx]
+                }
+                if major != "" {
+                    // Treat non-numeric or parse errors as Berry to be conservative
+                    // because Yarn 1 rarely sets packageManager.
+                    if m := major; m >= "2" {
+                        return true
+                    }
+                }
+                // If we couldn't confidently parse, still assume Berry since packageManager exists.
+                return true
+            }
+        }
+    }
+
+    return false
 }
