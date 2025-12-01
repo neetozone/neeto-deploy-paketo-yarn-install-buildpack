@@ -150,10 +150,11 @@ function buildpack::archive() {
 }
 
 function buildpackage::create() {
-  local output
+  local output buildpack_type
   output="${1}"
   buildpack_type="${2}"
-  target="${3:-}"
+  shift 2
+  local targets=("${@}")
 
   util::print::title "Packaging ${buildpack_type}... ${output}"
 
