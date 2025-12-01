@@ -15,7 +15,9 @@ source "${ROOT_DIR}/scripts/.util/print.sh"
 
 function main {
   local version output token
+  local -a targets=()
   token=""
+  # targets initialized above
 
   while [[ "${#}" != 0 ]]; do
     case "${1}" in
@@ -31,6 +33,11 @@ function main {
 
       --token|-t)
         token="${2}"
+        shift 2
+        ;;
+
+      --target)
+        targets+=("${2}")
         shift 2
         ;;
 
@@ -70,7 +77,11 @@ function main {
   fi
 
   buildpack::archive "${version}" "${buildpack_type}"
-  buildpackage::create "${output}" "${buildpack_type}"
+  if [[ ${#targets[@]} -gt 0 ]]; then
+    buildpackage::create "${output}" "${buildpack_type}" "${targets[@]}"
+  else
+    buildpackage::create "${output}" "${buildpack_type}"
+  fi
 }
 
 function usage() {
@@ -84,6 +95,7 @@ OPTIONS
   --version <version>  -v <version>  specifies the version number to use when packaging a buildpack or an extension
   --output <output>    -o <output>   location to output the packaged buildpackage or extension artifact (default: ${ROOT_DIR}/build/buildpackage.cnb)
   --token <token>                    Token used to download assets from GitHub (e.g. jam, pack, etc) (optional)
+  --target <target>                  Target platform (e.g. linux/amd64). Can be specified multiple times for multi-arch (optional)
 USAGE
 }
 
@@ -141,6 +153,7 @@ function buildpackage::create() {
   local output
   output="${1}"
   buildpack_type="${2}"
+  target="${3:-}"
 
   util::print::title "Packaging ${buildpack_type}... ${output}"
 
@@ -153,16 +166,34 @@ function buildpackage::create() {
     tar -xvf buildpack.tgz
     rm buildpack.tgz
 
-    pack \
-      extension package "${output}" \
-        --format file
+    pack_args=(
+      extension package "${output}"
+      --format file
+    )
+    
+    if [[ ${#targets[@]} -gt 0 ]]; then
+      for target in "${targets[@]}"; do
+        pack_args+=(--target "${target}")
+      done
+    fi
+
+    pack "${pack_args[@]}"
 
     cd $cwd
   else
-    pack \
-      buildpack package "${output}" \
-        --path "${BUILD_DIR}/buildpack.tgz" \
-        --format file
+    pack_args=(
+      buildpack package "${output}"
+      --path "${BUILD_DIR}/buildpack.tgz"
+      --format file
+    )
+    
+    if [[ ${#targets[@]} -gt 0 ]]; then
+      for target in "${targets[@]}"; do
+        pack_args+=(--target "${target}")
+      done
+    fi
+
+    pack "${pack_args[@]}"
   fi
 }
 
