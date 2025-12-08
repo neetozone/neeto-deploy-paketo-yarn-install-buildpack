@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -206,7 +207,14 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(spdx.Extension).To(Equal("spdx.json"))
 			content, err = io.ReadAll(spdx.Content)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(MatchJSON(`{
+			versionPattern := regexp.MustCompile(`"licenseListVersion": "\d+\.\d+"`)
+			contentReplaced := versionPattern.ReplaceAllString(string(content), `"licenseListVersion": "x.x"`)
+
+			uuidRegex := regexp.MustCompile(`[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}`)
+
+			contentReplaced = uuidRegex.ReplaceAllString(contentReplaced, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+
+			Expect(string(contentReplaced)).To(MatchJSON(`{
 				"SPDXID": "SPDXRef-DOCUMENT",
 				"creationInfo": {
 					"created": "0001-01-01T00:00:00Z",
@@ -214,10 +222,10 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 						"Organization: Anchore, Inc",
 						"Tool: -"
 					],
-					"licenseListVersion": "3.25"
+					"licenseListVersion": "x.x"
 				},
 				"dataLicense": "CC0-1.0",
-				"documentNamespace": "https://paketo.io/unknown-source-type/unknown-9ecf240a-d971-5a3c-8e7b-6d3f3ea4d9c2",
+				"documentNamespace": "https://paketo.io/unknown-source-type/unknown-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
 				"name": "unknown",
 				"packages": [
 					{
@@ -244,7 +252,12 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(syft.Extension).To(Equal("syft.json"))
 			content, err = io.ReadAll(syft.Content)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(MatchJSON(`{
+
+			versionPattern = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+			contentReplaced = versionPattern.ReplaceAllString(string(content), `x.x.x`)
+
+			Expect(contentReplaced).To(MatchJSON(`{
 				"artifacts": [],
 				"artifactRelationships": [],
 				"source": {
@@ -260,8 +273,8 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 					"version": ""
 				},
 				"schema": {
-					"version": "16.0.34",
-					"url": "https://raw.githubusercontent.com/anchore/syft/main/schema/json/schema-16.0.34.json"
+					"version": "x.x.x",
+					"url": "https://raw.githubusercontent.com/anchore/syft/main/schema/json/schema-x.x.x.json"
 				}
 			}`))
 
@@ -368,7 +381,15 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(spdx.Extension).To(Equal("spdx.json"))
 			content, err = io.ReadAll(spdx.Content)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(MatchJSON(`{
+
+			versionPattern := regexp.MustCompile(`"licenseListVersion": "\d+\.\d+"`)
+			contentReplaced := versionPattern.ReplaceAllString(string(content), `"licenseListVersion": "x.x"`)
+
+			uuidRegex := regexp.MustCompile(`[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}`)
+
+			contentReplaced = uuidRegex.ReplaceAllString(contentReplaced, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+
+			Expect(string(contentReplaced)).To(MatchJSON(`{
 				"SPDXID": "SPDXRef-DOCUMENT",
 				"creationInfo": {
 					"created": "0001-01-01T00:00:00Z",
@@ -376,10 +397,10 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 						"Organization: Anchore, Inc",
 						"Tool: -"
 					],
-					"licenseListVersion": "3.25"
+					"licenseListVersion": "x.x"
 				},
 				"dataLicense": "CC0-1.0",
-				"documentNamespace": "https://paketo.io/unknown-source-type/unknown-9ecf240a-d971-5a3c-8e7b-6d3f3ea4d9c2",
+				"documentNamespace": "https://paketo.io/unknown-source-type/unknown-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
 				"name": "unknown",
 				"packages": [
 					{
@@ -405,8 +426,13 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 
 			Expect(syft.Extension).To(Equal("syft.json"))
 			content, err = io.ReadAll(syft.Content)
+
+			versionPattern = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+			contentReplaced = versionPattern.ReplaceAllString(string(content), `x.x.x`)
+
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(MatchJSON(`{
+			Expect(contentReplaced).To(MatchJSON(`{
 				"artifacts": [],
 				"artifactRelationships": [],
 				"source": {
@@ -422,8 +448,8 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 					"version": ""
 				},
 				"schema": {
-					"version": "16.0.34",
-					"url": "https://raw.githubusercontent.com/anchore/syft/main/schema/json/schema-16.0.34.json"
+					"version": "x.x.x",
+					"url": "https://raw.githubusercontent.com/anchore/syft/main/schema/json/schema-x.x.x.json"
 				}
 			}`))
 
@@ -960,11 +986,11 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 
 			context("when BP_DISABLE_SBOM is set incorrectly", func() {
 				it.Before(func() {
-					os.Setenv("BP_DISABLE_SBOM", "not-a-bool")
+					Expect(os.Setenv("BP_DISABLE_SBOM", "not-a-bool")).To(Succeed())
 				})
 
 				it.After(func() {
-					os.Unsetenv("BP_DISABLE_SBOM")
+					Expect(os.Unsetenv("BP_DISABLE_SBOM")).To(Succeed())
 				})
 
 				it("returns an error", func() {
@@ -1128,11 +1154,11 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 
 			context("when BP_DISABLE_SBOM is set incorrectly", func() {
 				it.Before(func() {
-					os.Setenv("BP_DISABLE_SBOM", "not-a-bool")
+					Expect(os.Setenv("BP_DISABLE_SBOM", "not-a-bool")).To(Succeed())
 				})
 
 				it.After(func() {
-					os.Unsetenv("BP_DISABLE_SBOM")
+					Expect(os.Unsetenv("BP_DISABLE_SBOM")).To(Succeed())
 				})
 
 				it("returns an error", func() {
