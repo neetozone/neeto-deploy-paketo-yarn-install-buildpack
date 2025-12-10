@@ -158,44 +158,15 @@ function buildpackage::create() {
 
   util::print::title "Packaging ${buildpack_type}... ${output}"
 
-  if [ "$buildpack_type" == "extension" ]; then
-    cwd=$(pwd)
-    cd ${BUILD_DIR}
-    mkdir cnbdir
-    cd cnbdir
-    cp ../buildpack.tgz .
-    tar -xvf buildpack.tgz
-    rm buildpack.tgz
+  mkdir ${BUILD_DIR}/cnbdir
+  tar -xvf ${BUILD_DIR}/buildpack.tgz -C ${BUILD_DIR}/cnbdir
 
-    pack_args=(
-      extension package "${output}"
+  pack \
+    "${buildpack_type}" package "${output}" \
+      --path ${BUILD_DIR}/cnbdir \
       --format file
-    )
-    
-    if [[ ${#targets[@]} -gt 0 ]]; then
-      for target in "${targets[@]}"; do
-        pack_args+=(--target "${target}")
-      done
-    fi
 
-    pack "${pack_args[@]}"
-
-    cd $cwd
-  else
-    pack_args=(
-      buildpack package "${output}"
-      --path "${BUILD_DIR}/buildpack.tgz"
-      --format file
-    )
-    
-    if [[ ${#targets[@]} -gt 0 ]]; then
-      for target in "${targets[@]}"; do
-        pack_args+=(--target "${target}")
-      done
-    fi
-
-    pack "${pack_args[@]}"
-  fi
+  rm -rf ${BUILD_DIR}/cnbdir
 }
 
 main "${@:-}"
