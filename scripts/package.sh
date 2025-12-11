@@ -76,6 +76,26 @@ function main {
     buildpack_type=extension
   fi
 
+  # Read targets from buildpack.toml if no targets provided via flags
+  if [[ ${#targets[@]} -eq 0 ]]; then
+    local buildpack_toml="${ROOT_DIR}/buildpack.toml"
+    if [[ -f "${buildpack_toml}" ]]; then
+      util::print::info "Reading targets from ${buildpack_toml}..."
+      if command -v yj >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        local targets_json
+        targets_json=$(cat "${buildpack_toml}" | yj -tj | jq -r '.targets[]? | "\(.os)/\(.arch)"' 2>/dev/null || echo "")
+        while IFS= read -r target; do
+          if [[ -n "${target}" ]]; then
+            targets+=("${target}")
+          fi
+        done <<< "${targets_json}"
+        if [[ ${#targets[@]} -gt 0 ]]; then
+          util::print::info "Found ${#targets[@]} target(s) in buildpack.toml: ${targets[*]}"
+        fi
+      fi
+    fi
+  fi
+
   buildpack::archive "${version}" "${buildpack_type}"
   if [[ ${#targets[@]} -gt 0 ]]; then
     buildpackage::create "${output}" "${buildpack_type}" "${targets[@]}"
@@ -95,7 +115,7 @@ OPTIONS
   --version <version>  -v <version>  specifies the version number to use when packaging a buildpack or an extension
   --output <output>    -o <output>   location to output the packaged buildpackage or extension artifact (default: ${ROOT_DIR}/build/buildpackage.cnb)
   --token <token>                    Token used to download assets from GitHub (e.g. jam, pack, etc) (optional)
-  --target <target>                  Target platform (e.g. linux/amd64). Can be specified multiple times for multi-arch (optional)
+  --target <target>                  Target platform (e.g. linux/amd64). Can be specified multiple times for multi-arch (optional). If not provided, targets will be read from buildpack.toml
 USAGE
 }
 
@@ -115,6 +135,10 @@ function tools::install() {
   token="${1}"
 
   util::tools::pack::install \
+    --directory "${BIN_DIR}" \
+    --token "${token}"
+
+  util::tools::yj::install \
     --directory "${BIN_DIR}" \
     --token "${token}"
 
