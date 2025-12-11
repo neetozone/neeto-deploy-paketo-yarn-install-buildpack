@@ -113,10 +113,13 @@ function tools::install() {
   util::tools::pack::install \
     --directory "${BIN_DIR}" \
     --token "${token}"
+
+  util::tools::yj::install \
+    --directory "${BIN_DIR}" \
+    --token "${token}"
 }
 
 function buildpack::publish() {
-
   local image_ref buildpack_type archive_path
   image_ref="${1}"
   buildpack_type="${2}"
@@ -124,19 +127,97 @@ function buildpack::publish() {
 
   util::print::title "Publishing ${buildpack_type}..."
 
-  util::print::info "Extracting archive..."
-  tmp_dir=$(mktemp -d -p $ROOT_DIR)
-  tar -xvf $archive_path -C $tmp_dir
+  # Read targets from buildpack.toml
+  local buildpack_toml="${ROOT_DIR}/buildpack.toml"
+  local -a targets=()
+  
+  if [[ -f "${buildpack_toml}" ]]; then
+    util::print::info "Reading targets from ${buildpack_toml}..."
+    # Use yj and jq if available
+    if command -v yj >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      local targets_json
+      targets_json=$(cat "${buildpack_toml}" | yj -tj | jq -r '.targets[]? | "\(.os)/\(.arch)"' 2>/dev/null || echo "")
+      while IFS= read -r target; do
+        if [[ -n "${target}" ]]; then
+          targets+=("${target}")
+        fi
+      done <<< "${targets_json}"
+    fi
+  fi
 
-  util::print::info "Publishing ${buildpack_type} to ${image_ref}"
+  if [[ ${#targets[@]} -gt 0 ]]; then
+    util::print::info "Found ${#targets[@]} target(s) in buildpack.toml: ${targets[*]}"
+  fi
+
+  if [[ ! -f "${archive_path}" ]]; then
+    util::print::error "buildpack artifact not found at ${archive_path}; run scripts/package.sh first"
+  fi
+
+  # For multi-arch, pack needs to publish each architecture separately, then create a manifest
+  if [[ ${#targets[@]} -gt 1 ]]; then
+    # Multi-arch publishing
+    util::print::info "Publishing multi-arch ${buildpack_type} (${#targets[@]} architectures)..."
+    
+    # Check if manifest list already exists and remove it
+    if docker manifest inspect "${image_ref}" >/dev/null 2>&1; then
+      util::print::info "Existing manifest list found for ${image_ref}. Removing it..."
+      docker manifest rm "${image_ref}"
+    fi
+    
+    # Extract archive once
+    local tmp_dir
+    tmp_dir=$(mktemp -d -p "${ROOT_DIR}")
+    tar -xzf "${archive_path}" -C "${tmp_dir}"
+    
+    local arch_images=()
+    for target in "${targets[@]}"; do
+      local arch
+      arch=$(echo "${target}" | cut -d'/' -f2)
+      local arch_image_ref="${image_ref}-${arch}"
+
+      util::print::info "Publishing ${target} as ${arch_image_ref}..."
 
   pack \
-    ${buildpack_type} package $image_ref \
-    --path $tmp_dir \
+        ${buildpack_type} package "${arch_image_ref}" \
+        --path "${tmp_dir}" \
+        --target "${target}" \
     --format image \
     --publish
 
-  rm -rf $tmp_dir
+      arch_images+=("${arch_image_ref}")
+    done
+    
+    # Create multi-arch manifest
+    util::print::info "Creating multi-arch manifest for ${image_ref}..."
+    docker manifest create "${image_ref}" "${arch_images[@]}"
+    docker manifest push "${image_ref}"
+    
+    rm -rf "${tmp_dir}"
+    util::print::info "Successfully published multi-arch ${buildpack_type}: ${image_ref}"
+  else
+    # Single architecture or no targets detected
+    util::print::info "Extracting archive..."
+    local tmp_dir
+    tmp_dir=$(mktemp -d -p "${ROOT_DIR}")
+    tar -xzf "${archive_path}" -C "${tmp_dir}"
+
+    util::print::info "Publishing ${buildpack_type} to ${image_ref}"
+
+    local pack_args=(
+      ${buildpack_type} package "${image_ref}"
+      --path "${tmp_dir}"
+      --format image
+      --publish
+    )
+    
+    # Add target if we have one
+    if [[ ${#targets[@]} -eq 1 ]]; then
+      pack_args+=(--target "${targets[0]}")
+    fi
+
+    pack "${pack_args[@]}"
+    rm -rf "${tmp_dir}"
+  fi
 }
 
 main "${@:-}"
