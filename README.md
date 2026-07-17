@@ -8,8 +8,8 @@ applications that use the [yarn](https://yarnpkg.com) package manager.
 ## Integration
 
 The Yarn Install CNB provides `node_modules` as a dependency. Downstream
-buildpacks can require the `node_modules` dependency by generating a [Build
-Plan TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml)
+buildpacks can require the `node_modules` dependency by generating a [Build Plan
+TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml)
 file that looks like the following:
 
 ```toml
@@ -48,7 +48,9 @@ To package this buildpack for consumption:
 ./scripts/package.sh --version 2.6.6
 ```
 
-This will build the buildpack for all target architectures specified in `buildpack.toml` (amd64 and arm64 by default) and create a single archive containing binaries for all architectures in the `build/` directory.
+This will build the buildpack for all target architectures specified in
+`buildpack.toml` (amd64 and arm64 by default) and create a single archive
+containing binaries for all architectures in the `build/` directory.
 
 This will create a `buildpackage.cnb` file under the `build` directory which you
 can use to build your app as follows:
@@ -75,7 +77,8 @@ aws ecr get-login-password --region us-east-1 | \
 The script will automatically:
 - Read target architectures from `buildpack.toml`
 - Extract the buildpack archive
-- Publish each architecture separately with arch-suffixed tags (e.g., `yarn-install:<version>-amd64`, `yarn-install:<version>-arm64`)
+- Publish each architecture separately with arch-suffixed tags (e.g.,
+  `yarn-install:<version>-amd64`, `yarn-install:<version>-arm64`)
 - Create and push a multi-arch manifest list
 
 ## Usage
@@ -105,8 +108,8 @@ To run all integration tests, run:
 
 For most apps, the Yarn Install Buildpack runs fine on the [Base
 builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images).
-But when the app requires compilation of native extensions using `node-gyp`,
-the buildpack requires that you use the [Full
+But when the app requires compilation of native extensions using `node-gyp`, the
+buildpack requires that you use the [Full
 builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images).
 This is because `node-gyp` requires `python` that's absent on the Base builder,
 and the module may require other shared objects.
