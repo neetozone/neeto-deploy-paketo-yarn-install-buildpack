@@ -1,16 +1,15 @@
 # Paketo Buildpack for Yarn Install
 
-The Yarn Install CNB generates and provides application dependencies for node
-applications that use the [yarn](https://yarnpkg.com) package manager.
+The Yarn Install CNB generates and provides application dependencies for node applications that use the
+[yarn](https://yarnpkg.com) package manager.
 
 **NOTE:** Support for `yarn` is limited to version 1 (Classic).
 
 ## Integration
 
-The Yarn Install CNB provides `node_modules` as a dependency. Downstream
-buildpacks can require the `node_modules` dependency by generating a [Build
-Plan TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml)
-file that looks like the following:
+The Yarn Install CNB provides `node_modules` as a dependency. Downstream buildpacks can require the `node_modules`
+dependency by generating a [Build Plan
+TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml) file that looks like the following:
 
 ```toml
 [[requires]]
@@ -48,10 +47,10 @@ To package this buildpack for consumption:
 ./scripts/package.sh --version 2.6.6
 ```
 
-This will build the buildpack for all target architectures specified in `buildpack.toml` (amd64 and arm64 by default) and create a single archive containing binaries for all architectures in the `build/` directory.
+This will build the buildpack for all target architectures specified in `buildpack.toml` (amd64 and arm64 by default)
+and create a single archive containing binaries for all architectures in the `build/` directory.
 
-This will create a `buildpackage.cnb` file under the `build` directory which you
-can use to build your app as follows:
+This will create a `buildpackage.cnb` file under the `build` directory which you can use to build your app as follows:
 ```
 pack build <app-name> -p <path-to-app> -b <path/to/node-engine.cnb> -b <path/to/yarn.cnb> \
 -b build/buildpackage.cnb
@@ -75,19 +74,18 @@ aws ecr get-login-password --region us-east-1 | \
 The script will automatically:
 - Read target architectures from `buildpack.toml`
 - Extract the buildpack archive
-- Publish each architecture separately with arch-suffixed tags (e.g., `yarn-install:<version>-amd64`, `yarn-install:<version>-arm64`)
+- Publish each architecture separately with arch-suffixed tags (e.g., `yarn-install:<version>-amd64`,
+  `yarn-install:<version>-arm64`)
 - Create and push a multi-arch manifest list
 
 ## Usage
 
 ## Specifying a project path
 
-To specify a project subdirectory to be used as the root of the app, please use
-the `BP_NODE_PROJECT_PATH` environment variable at build time either directly
-(ex. `pack build my-app --env BP_NODE_PROJECT_PATH=./src/my-app`) or through a
-[`project.toml`
-file](https://github.com/buildpacks/spec/blob/main/extensions/project-descriptor.md).
-This could be useful if your app is a part of a monorepo.
+To specify a project subdirectory to be used as the root of the app, please use the `BP_NODE_PROJECT_PATH` environment
+variable at build time either directly (ex. `pack build my-app --env BP_NODE_PROJECT_PATH=./src/my-app`) or through a
+[`project.toml` file](https://github.com/buildpacks/spec/blob/main/extensions/project-descriptor.md). This could be
+useful if your app is a part of a monorepo.
 
 ## Run Tests
 
@@ -104,9 +102,7 @@ To run all integration tests, run:
 ## Stack support
 
 For most apps, the Yarn Install Buildpack runs fine on the [Base
-builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images).
-But when the app requires compilation of native extensions using `node-gyp`,
-the buildpack requires that you use the [Full
-builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images).
-This is because `node-gyp` requires `python` that's absent on the Base builder,
-and the module may require other shared objects.
+builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). But when the app
+requires compilation of native extensions using `node-gyp`, the buildpack requires that you use the [Full
+builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). This is because
+`node-gyp` requires `python` that's absent on the Base builder, and the module may require other shared objects.
