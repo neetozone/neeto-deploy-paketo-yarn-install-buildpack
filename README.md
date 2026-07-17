@@ -8,8 +8,9 @@ The Yarn Install CNB generates and provides application dependencies for node ap
 ## Integration
 
 The Yarn Install CNB provides `node_modules` as a dependency. Downstream buildpacks can require the `node_modules`
-dependency by generating a [Build Plan
-TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml) file that looks like the following:
+dependency by generating a
+[Build Plan TOML](https://github.com/buildpacks/spec/blob/master/buildpack.md#build-plan-toml) file that looks like the
+following:
 
 ```toml
 [[requires]]
@@ -101,8 +102,8 @@ To run all integration tests, run:
 
 ## Stack support
 
-For most apps, the Yarn Install Buildpack runs fine on the [Base
-builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). But when the app
-requires compilation of native extensions using `node-gyp`, the buildpack requires that you use the [Full
-builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). This is because
+For most apps, the Yarn Install Buildpack runs fine on the
+[Base builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). But when the app
+requires compilation of native extensions using `node-gyp`, the buildpack requires that you use the
+[Full builder](https://github.com/paketo-buildpacks/stacks#metadata-for-paketo-buildrun-stack-images). This is because
 `node-gyp` requires `python` that's absent on the Base builder, and the module may require other shared objects.
