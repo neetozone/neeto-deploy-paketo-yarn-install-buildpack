@@ -62,7 +62,7 @@ func Build( entryResolver EntryResolver,
 		// Delete existing node_modules if present
 		err = os.RemoveAll(filepath.Join(projectPath, "node_modules"))
 		if err != nil {
-				fmt.Errorf("failed to remove node_modules symlink: %w", err)
+			return packit.BuildResult{}, fmt.Errorf("failed to remove node_modules symlink: %w", err)
 		}
 
 		globalNpmrcPath, err := configurationManager.DeterminePath("npmrc", context.Platform.Path, ".npmrc")
