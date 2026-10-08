@@ -311,7 +311,7 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			entryResolver.MergeLayerTypesCall.Returns.Launch = true
 		})
 
-		it("returns a result that installs launch modules", func() {
+		it("returns a launch layer that points at the project's node_modules without installing into it", func() {
 			result, err := build(packit.BuildContext{
 				BuildpackInfo: packit.BuildpackInfo{
 					Name:        "Some Buildpack",
@@ -344,114 +344,14 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(layer.Path).To(Equal(filepath.Join(layersDir, "launch-modules")))
 			Expect(layer.LaunchEnv).To(Equal(packit.Environment{
 				"NODE_PROJECT_PATH.default": filepath.Join(workingDir, "some-project-dir"),
-				"PATH.append":               filepath.Join(layersDir, "launch-modules", "node_modules", ".bin"),
+				"PATH.append":               filepath.Join(workingDir, "some-project-dir", "node_modules", ".bin"),
 				"PATH.delim":                ":",
 			}))
 			Expect(layer.Launch).To(BeTrue())
 			Expect(layer.Build).To(BeFalse())
-			Expect(layer.Metadata).To(Equal(
-				map[string]interface{}{
-					"cache_sha": "some-awesome-shasum",
-				}))
-
-			Expect(layer.SBOM.Formats()).To(HaveLen(3))
-
-			cdx := layer.SBOM.Formats()[0]
-			spdx := layer.SBOM.Formats()[1]
-			syft := layer.SBOM.Formats()[2]
-
-			Expect(cdx.Extension).To(Equal("cdx.json"))
-			content, err := io.ReadAll(cdx.Content)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(MatchJSON(`{
-				"$schema": "http://cyclonedx.org/schema/bom-1.3.schema.json",
-				"bomFormat": "CycloneDX",
-				"metadata": {
-					"tools": [
-						{
-							"name": "",
-							"vendor": "anchore"
-						}
-					]
-				},
-				"specVersion": "1.3",
-				"version": 1
-			}`))
-
-			Expect(spdx.Extension).To(Equal("spdx.json"))
-			content, err = io.ReadAll(spdx.Content)
-			Expect(err).NotTo(HaveOccurred())
-
-			versionPattern := regexp.MustCompile(`"licenseListVersion": "\d+\.\d+"`)
-			contentReplaced := versionPattern.ReplaceAllString(string(content), `"licenseListVersion": "x.x"`)
-
-			uuidRegex := regexp.MustCompile(`[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}`)
-
-			contentReplaced = uuidRegex.ReplaceAllString(contentReplaced, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-
-			Expect(string(contentReplaced)).To(MatchJSON(`{
-				"SPDXID": "SPDXRef-DOCUMENT",
-				"creationInfo": {
-					"created": "0001-01-01T00:00:00Z",
-					"creators": [
-						"Organization: Anchore, Inc",
-						"Tool: -"
-					],
-					"licenseListVersion": "x.x"
-				},
-				"dataLicense": "CC0-1.0",
-				"documentNamespace": "https://paketo.io/unknown-source-type/unknown-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-				"name": "unknown",
-				"packages": [
-					{
-						"SPDXID": "SPDXRef-DocumentRoot-Unknown-",
-						"copyrightText": "NOASSERTION",
-						"downloadLocation": "NOASSERTION",
-						"filesAnalyzed": false,
-						"licenseConcluded": "NOASSERTION",
-						"licenseDeclared": "NOASSERTION",
-						"name": "",
-						"supplier": "NOASSERTION"
-					}
-				],
-				"relationships": [
-					{
-						"relatedSpdxElement": "SPDXRef-DocumentRoot-Unknown-",
-						"relationshipType": "DESCRIBES",
-						"spdxElementId": "SPDXRef-DOCUMENT"
-					}
-				],
-				"spdxVersion": "SPDX-2.2"
-			}`))
-
-			Expect(syft.Extension).To(Equal("syft.json"))
-			content, err = io.ReadAll(syft.Content)
-
-			versionPattern = regexp.MustCompile(`\d+\.\d+\.\d+`)
-
-			contentReplaced = versionPattern.ReplaceAllString(string(content), `x.x.x`)
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(contentReplaced).To(MatchJSON(`{
-				"artifacts": [],
-				"artifactRelationships": [],
-				"source": {
-					"id": "",
-					"name": "",
-					"version": "",
-					"type": "",
-					"metadata": null
-				},
-				"distro": {},
-				"descriptor": {
-					"name": "",
-					"version": ""
-				},
-				"schema": {
-					"version": "x.x.x",
-					"url": "https://raw.githubusercontent.com/anchore/syft/main/schema/json/schema-x.x.x.json"
-				}
-			}`))
+			Expect(layer.Metadata).To(BeEmpty())
+			Expect(layer.SBOM).To(BeNil())
+			Expect(layer.ExecD).To(BeEmpty())
 
 			Expect(configurationManager.DeterminePathCall.CallCount).To(Equal(2))
 
@@ -467,23 +367,14 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 
 			Expect(installProcess.ShouldRunCall.Receives.WorkingDir).To(Equal(filepath.Join(workingDir, "some-project-dir")))
 
-			Expect(installProcess.SetupModulesCall.Receives.WorkingDir).To(Equal(filepath.Join(workingDir, "some-project-dir")))
-			Expect(installProcess.SetupModulesCall.Receives.CurrentModulesLayerPath).To(Equal(""))
-			Expect(installProcess.SetupModulesCall.Receives.NextModulesLayerPath).To(Equal(layer.Path))
+			// The launch phase reuses the node_modules installed in the
+			// project during build instead of installing its own copy.
+			Expect(installProcess.SetupModulesCall.CallCount).To(BeZero())
+			Expect(installProcess.ExecuteCall.CallCount).To(BeZero())
+			Expect(sbomGenerator.GenerateCall.CallCount).To(BeZero())
 
-			Expect(installProcess.ExecuteCall.Receives.WorkingDir).To(Equal(filepath.Join(workingDir, "some-project-dir")))
-			Expect(installProcess.ExecuteCall.Receives.ModulesLayerPath).To(Equal(filepath.Join(layersDir, "launch-modules")))
-			Expect(installProcess.ExecuteCall.Receives.Launch).To(BeTrue())
-
-			Expect(sbomGenerator.GenerateCall.Receives.Dir).To(Equal(workingDir))
-
-			workspaceLink, err := os.Readlink(filepath.Join(workingDir, "some-project-dir", "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(workspaceLink).To(Equal(filepath.Join(tmpDir, "node_modules")))
-
-			tmpLink, err := os.Readlink(filepath.Join(tmpDir, "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tmpLink).To(Equal(filepath.Join(layersDir, "launch-modules", "node_modules")))
+			Expect(filepath.Join(workingDir, "some-project-dir", "node_modules")).NotTo(BeAnExistingFile())
+			Expect(filepath.Join(tmpDir, "node_modules")).NotTo(BeAnExistingFile())
 		})
 	})
 
@@ -569,27 +460,22 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			launchLayer := result.Layers[1]
-			Expect(launchLayer.ExecD).To(Equal([]string{filepath.Join(cnbDir, "bin", "setup-symlinks")}))
 			Expect(len(result.Layers)).To(Equal(2))
+			launchLayer := result.Layers[1]
+			Expect(launchLayer.ExecD).To(BeEmpty())
 
-			Expect(installProcess.SetupModulesCall.CallCount).To(Equal(2))
-
+			// Modules are installed once, for the build layer. The launch
+			// layer reuses them from the project directory.
+			Expect(installProcess.SetupModulesCall.CallCount).To(Equal(1))
 			Expect(setupModulesCalls[0].WorkingDir).To(Equal(workingDir))
 			Expect(setupModulesCalls[0].CurrentModulesLayerPath).To(Equal(""))
 			Expect(setupModulesCalls[0].NextModulesLayerPath).To(Equal(result.Layers[0].Path))
 
-			Expect(setupModulesCalls[1].WorkingDir).To(Equal(workingDir))
-			Expect(setupModulesCalls[1].CurrentModulesLayerPath).To(Equal(result.Layers[0].Path))
-			Expect(setupModulesCalls[1].NextModulesLayerPath).To(Equal(result.Layers[1].Path))
+			Expect(installProcess.ExecuteCall.CallCount).To(Equal(1))
+			Expect(installProcess.ExecuteCall.Receives.Launch).To(BeFalse())
 
-			workspaceLink, err := os.Readlink(filepath.Join(workingDir, "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(workspaceLink).To(Equal(filepath.Join(tmpDir, "node_modules")))
-
-			tmpLink, err := os.Readlink(filepath.Join(tmpDir, "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tmpLink).To(Equal(filepath.Join(layersDir, "build-modules", "node_modules")))
+			Expect(filepath.Join(workingDir, "node_modules")).NotTo(BeAnExistingFile())
+			Expect(filepath.Join(tmpDir, "node_modules")).NotTo(BeAnExistingFile())
 		})
 	})
 
@@ -640,14 +526,16 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(launchLayer.Path).To(Equal(filepath.Join(layersDir, "launch-modules")))
 			Expect(launchLayer.Launch).To(BeTrue())
 
-			workspaceLink, err := os.Readlink(filepath.Join(workingDir, "some-project-dir", "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(workspaceLink).To(Equal(filepath.Join(tmpDir, "node_modules")))
+			// The cached build layer's node_modules are copied back into the
+			// project directory.
+			Expect(installProcess.SetupModulesCall.CallCount).To(Equal(1))
+			Expect(installProcess.SetupModulesCall.Receives.WorkingDir).To(Equal(filepath.Join(workingDir, "some-project-dir")))
+			Expect(installProcess.SetupModulesCall.Receives.CurrentModulesLayerPath).To(Equal(filepath.Join(layersDir, "build-modules")))
+			Expect(installProcess.SetupModulesCall.Receives.NextModulesLayerPath).To(Equal(filepath.Join(workingDir, "some-project-dir")))
+			Expect(installProcess.ExecuteCall.CallCount).To(BeZero())
 
-			tmpLink, err := os.Readlink(filepath.Join(tmpDir, "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tmpLink).To(Equal(filepath.Join(layersDir, "build-modules", "node_modules")))
-
+			Expect(filepath.Join(workingDir, "some-project-dir", "node_modules")).NotTo(BeAnExistingFile())
+			Expect(filepath.Join(tmpDir, "node_modules")).NotTo(BeAnExistingFile())
 		})
 	})
 
@@ -691,14 +579,11 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 			Expect(launchLayer.Path).To(Equal(filepath.Join(layersDir, "launch-modules")))
 			Expect(launchLayer.Launch).To(BeTrue())
 
-			workspaceLink, err := os.Readlink(filepath.Join(workingDir, "some-project-dir", "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(workspaceLink).To(Equal(filepath.Join(tmpDir, "node_modules")))
+			Expect(installProcess.SetupModulesCall.CallCount).To(BeZero())
+			Expect(installProcess.ExecuteCall.CallCount).To(BeZero())
 
-			tmpLink, err := os.Readlink(filepath.Join(tmpDir, "node_modules"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tmpLink).To(Equal(filepath.Join(layersDir, "launch-modules", "node_modules")))
-
+			Expect(filepath.Join(workingDir, "some-project-dir", "node_modules")).NotTo(BeAnExistingFile())
+			Expect(filepath.Join(tmpDir, "node_modules")).NotTo(BeAnExistingFile())
 		})
 	})
 
@@ -1075,80 +960,6 @@ func testBuild(t *testing.T, context spec.G, it spec.S) {
 						Layers: packit.Layers{Path: layersDir},
 					})
 					Expect(err).To(MatchError(ContainSubstring("permission denied")))
-				})
-			})
-
-			context("when modules cannot be set up", func() {
-				it.Before(func() {
-					installProcess.SetupModulesCall.Returns.Error = errors.New("failed to setup modules")
-				})
-
-				it("returns an error", func() {
-					_, err := build(packit.BuildContext{
-						CNBPath:    cnbDir,
-						WorkingDir: workingDir,
-						Plan: packit.BuildpackPlan{
-							Entries: []packit.BuildpackPlanEntry{
-								{Name: "node_modules"},
-							},
-						},
-						Layers: packit.Layers{Path: layersDir},
-					})
-					Expect(err).To(MatchError("failed to setup modules"))
-				})
-			})
-
-			context("when the install process cannot be executed", func() {
-				it.Before(func() {
-					installProcess.ExecuteCall.Returns.Error = errors.New("failed to execute install process")
-				})
-
-				it("returns an error", func() {
-					_, err := build(packit.BuildContext{
-						WorkingDir: workingDir,
-						CNBPath:    cnbDir,
-						Layers:     packit.Layers{Path: layersDir},
-						Plan: packit.BuildpackPlan{
-							Entries: []packit.BuildpackPlanEntry{
-								{Name: "node_modules"},
-							},
-						},
-					})
-					Expect(err).To(MatchError("failed to execute install process"))
-				})
-			})
-
-			context("when the BOM cannot be generated", func() {
-				it.Before(func() {
-					sbomGenerator.GenerateCall.Returns.Error = errors.New("failed to generate SBOM")
-				})
-				it("returns an error", func() {
-					_, err := build(packit.BuildContext{
-						BuildpackInfo: packit.BuildpackInfo{
-							SBOMFormats: []string{"application/vnd.cyclonedx+json", "application/spdx+json", "application/vnd.syft+json"},
-						},
-						WorkingDir: workingDir,
-						CNBPath:    cnbDir,
-						Layers:     packit.Layers{Path: layersDir},
-						Plan: packit.BuildpackPlan{
-							Entries: []packit.BuildpackPlanEntry{{Name: "node_modules"}},
-						},
-						Stack: "some-stack",
-					})
-					Expect(err).To(MatchError("failed to generate SBOM"))
-				})
-			})
-
-			context("when the BOM cannot be formatted", func() {
-				it("returns an error", func() {
-					_, err := build(packit.BuildContext{
-						WorkingDir: workingDir,
-						BuildpackInfo: packit.BuildpackInfo{
-							SBOMFormats: []string{"random-format"},
-						},
-						Layers: packit.Layers{Path: layersDir},
-					})
-					Expect(err).To(MatchError("unsupported SBOM format: 'random-format'"))
 				})
 			})
 
