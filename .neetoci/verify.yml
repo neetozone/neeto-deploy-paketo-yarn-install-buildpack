@@ -1,0 +1,27 @@
+version: v1.0
+
+fail_fast: true
+
+plan: standard-2
+
+global_job_config:
+  prologue:
+    commands:
+      - neetoci-version go 1.26
+      - checkout
+
+blocks:
+  - name: "Tests"
+    dependencies: []
+    task:
+      jobs:
+        - name: Buildpack unit tests
+          commands:
+            - go build ./...
+            - go vet ./...
+            - go test ./... -run Unit
+
+triggers:
+  - event: branch
+    branch_name: main
+  - event: pull_request

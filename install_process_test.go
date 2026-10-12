@@ -194,16 +194,16 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 
 		context("when the current node directory is not set", func() {
 			context("when there is not a node_modules directory in the working", func() {
-				it("makes a node_modules directory in the working dir and one in the next modules dir and symlinks them", func() {
+				it("makes a real node_modules directory in the working dir and leaves the next modules dir alone", func() {
 					nextPath, err := installProcess.SetupModules(workingDir, "", nextModulesLayerPath)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(nextPath).To(Equal(nextModulesLayerPath))
 
-					Expect(filepath.Join(nextModulesLayerPath, "node_modules")).To(BeADirectory())
-
-					link, err := os.Readlink(filepath.Join(workingDir, "node_modules"))
+					info, err := os.Lstat(filepath.Join(workingDir, "node_modules"))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(link).To(Equal(filepath.Join(nextModulesLayerPath, "node_modules")))
+					Expect(info.IsDir()).To(BeTrue())
+
+					Expect(filepath.Join(nextModulesLayerPath, "node_modules")).NotTo(BeAnExistingFile())
 				})
 			})
 
@@ -213,17 +213,34 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 
 					Expect(os.WriteFile(filepath.Join(workingDir, "node_modules", "some-file"), []byte(""), os.ModePerm)).To(Succeed())
 				})
-				it("moves the contents of the node_modules directory in the working dir and into the next modules dir and symlinks them", func() {
+				it("keeps the node_modules directory and its contents in the working dir", func() {
 					nextPath, err := installProcess.SetupModules(workingDir, "", nextModulesLayerPath)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(nextPath).To(Equal(nextModulesLayerPath))
 
-					Expect(filepath.Join(nextModulesLayerPath, "node_modules")).To(BeADirectory())
-					Expect(filepath.Join(nextModulesLayerPath, "node_modules", "some-file")).To(BeAnExistingFile())
-
-					link, err := os.Readlink(filepath.Join(workingDir, "node_modules"))
+					info, err := os.Lstat(filepath.Join(workingDir, "node_modules"))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(link).To(Equal(filepath.Join(nextModulesLayerPath, "node_modules")))
+					Expect(info.IsDir()).To(BeTrue())
+					Expect(filepath.Join(workingDir, "node_modules", "some-file")).To(BeAnExistingFile())
+
+					Expect(filepath.Join(nextModulesLayerPath, "node_modules")).NotTo(BeAnExistingFile())
+				})
+			})
+
+			context("when node_modules in the working dir is a symlink", func() {
+				it.Before(func() {
+					Expect(os.MkdirAll(filepath.Join(currentModulesLayerPath, "node_modules"), os.ModePerm)).To(Succeed())
+					Expect(os.Symlink(filepath.Join(currentModulesLayerPath, "node_modules"), filepath.Join(workingDir, "node_modules"))).To(Succeed())
+				})
+
+				it("replaces the symlink with a real node_modules directory", func() {
+					_, err := installProcess.SetupModules(workingDir, "", nextModulesLayerPath)
+					Expect(err).NotTo(HaveOccurred())
+
+					info, err := os.Lstat(filepath.Join(workingDir, "node_modules"))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(info.Mode() & os.ModeSymlink).To(BeZero())
+					Expect(info.IsDir()).To(BeTrue())
 				})
 			})
 		})
@@ -279,18 +296,18 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 				})
 			})
 
-			context("node_modules directory cannot be created in layer directory", func() {
+			context("node_modules directory cannot be created in the working directory", func() {
 				it.Before(func() {
-					Expect(os.Chmod(nextModulesLayerPath, 0000)).To(Succeed())
+					Expect(os.Chmod(workingDir, 0555)).To(Succeed())
 				})
 
 				it.After(func() {
-					Expect(os.Chmod(nextModulesLayerPath, os.ModePerm)).To(Succeed())
+					Expect(os.Chmod(workingDir, os.ModePerm)).To(Succeed())
 				})
 
 				it("returns an error", func() {
 					_, err := installProcess.SetupModules(workingDir, "", nextModulesLayerPath)
-					Expect(err).To(MatchError(ContainSubstring("failed to move node_modules directory to layer:")))
+					Expect(err).To(MatchError(ContainSubstring("failed to create node_modules directory:")))
 					Expect(err).To(MatchError(ContainSubstring("permission denied")))
 				})
 			})
@@ -357,7 +374,7 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 					"get",
 					"yarn-offline-mirror",
 				}))
-				Expect(executions[0].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[0].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[0].Dir).To(Equal(workingDir))
 
 				Expect(executions[1].Args).To(Equal([]string{
@@ -365,13 +382,11 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 					"--ignore-engines",
 					"--frozen-lockfile",
 					"--production", "false",
-					"--modules-folder",
-					filepath.Join(modulesLayerPath, "node_modules"),
 				}))
-				Expect(executions[1].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[1].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[1].Dir).To(Equal(workingDir))
 				Expect(buffer.String()).To(ContainLines(
-					fmt.Sprintf("    Running 'yarn install --ignore-engines --frozen-lockfile --production false --modules-folder %s'", filepath.Join(modulesLayerPath, "node_modules")),
+					"    Running 'yarn install --ignore-engines --frozen-lockfile --production false'",
 					"      stdout output",
 					"      stderr output",
 				))
@@ -389,20 +404,18 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 					"get",
 					"yarn-offline-mirror",
 				}))
-				Expect(executions[0].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[0].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[0].Dir).To(Equal(workingDir))
 
 				Expect(executions[1].Args).To(Equal([]string{
 					"install",
 					"--ignore-engines",
 					"--frozen-lockfile",
-					"--modules-folder",
-					filepath.Join(modulesLayerPath, "node_modules"),
 				}))
-				Expect(executions[1].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[1].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[1].Dir).To(Equal(workingDir))
 				Expect(buffer.String()).To(ContainLines(
-					fmt.Sprintf("    Running 'yarn install --ignore-engines --frozen-lockfile --modules-folder %s'", filepath.Join(modulesLayerPath, "node_modules")),
+					"    Running 'yarn install --ignore-engines --frozen-lockfile'",
 					"      stdout output",
 					"      stderr output",
 				))
@@ -440,7 +453,7 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 					"get",
 					"yarn-offline-mirror",
 				}))
-				Expect(executions[0].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[0].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[0].Dir).To(Equal(workingDir))
 
 				Expect(executions[1].Args).To(Equal([]string{
@@ -448,12 +461,10 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 					"--ignore-engines",
 					"--frozen-lockfile",
 					"--offline",
-					"--modules-folder",
-					filepath.Join(modulesLayerPath, "node_modules"),
 				}))
-				Expect(executions[1].Env).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
+				Expect(pathEntries(executions[1].Env)).To(ContainElement(MatchRegexp(`^PATH=.*:node_modules/.bin$`)))
 				Expect(executions[1].Dir).To(Equal(workingDir))
-				Expect(buffer.String()).To(ContainSubstring(fmt.Sprintf("Running 'yarn install --ignore-engines --frozen-lockfile --offline --modules-folder %s'", filepath.Join(modulesLayerPath, "node_modules"))))
+				Expect(buffer.String()).To(ContainSubstring("Running 'yarn install --ignore-engines --frozen-lockfile --offline'"))
 			})
 		})
 
@@ -525,4 +536,17 @@ func testInstallProcess(t *testing.T, context spec.G, it spec.S) {
 			})
 		})
 	})
+}
+
+// pathEntries keeps only PATH from an execution environment, so a failing
+// assertion doesn't print the rest of the process environment.
+func pathEntries(env []string) []string {
+	var paths []string
+	for _, pair := range env {
+		if strings.HasPrefix(pair, "PATH=") {
+			paths = append(paths, pair)
+		}
+	}
+
+	return paths
 }
